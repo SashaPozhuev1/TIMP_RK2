@@ -1,0 +1,526 @@
+///////////////////////////////////////////////////////////Дерево:
+///////////////////////////////////C++:
+template <typename T>
+class tree_t
+{
+private:
+	struct node_t {
+		node_t * left;
+		node_t * right;
+		T value;
+	};
+private:
+	node_t * root_;
+	void destroy(node_t * curr_);
+	bool search(T value, const node_t * curr_, bool & success) const;
+	void inorder(std::ostream & stream, const node_t * curr_, std::size_t count) const;
+	bool compare(bool & success, node_t * left, node_t * right) const;
+	node_t * remser(T value, node_t * curr_, node_t *& newcurr_) {
+		if (curr_) {
+			if (curr_->value != value) {
+				remser(value, curr_->right, newcurr_);
+				remser(value, curr_->left, newcurr_);
+			}
+			else if (curr_->value == value) {
+				newcurr_ = curr_;
+			}
+		}
+		return root_;
+	}
+
+	node_t * search(const node_t * curr_, node_t * newcurr_, node_t *& pred_) {
+		if (newcurr_){
+			if (curr_ == root_) {
+				pred_ = root_;
+				return root_;
+			}
+			if (newcurr_->right != curr_) {
+				search(curr_, newcurr_->right, pred_);
+			}
+			if (newcurr_->left != curr_) {
+				search(curr_, newcurr_->left, pred_);
+			}
+			if (newcurr_->right == curr_) {
+				pred_ = newcurr_;
+			}
+			if (newcurr_->left == curr_) {
+				pred_ = newcurr_;
+			}
+		}
+		return root_;
+	}
+public:
+	tree_t();
+	tree_t(std::initializer_list<T> keys);
+	~tree_t();
+	bool isEmpty();
+	void insert(T value);
+	bool find(T value) const;
+	void print(std::ostream & stream) const;
+	auto operator==(tree_t const & other) const;
+	bool remove(T value);
+	bool read(std::istream & stream, std::ostream & ostream);
+	node_t * root() {
+		return root_;
+	}
+};
+
+template <typename T>
+tree_t<T>::tree_t() {
+	root_ = nullptr;
+}
+
+template <typename T>
+tree_t<T>::~tree_t() {
+	destroy(root_);
+}
+
+template <typename T>
+void tree_t<T>::destroy(node_t * curr_) {
+	if (curr_) {
+		destroy(curr_->right);
+		destroy(curr_->left);
+		delete curr_;
+	}
+}
+
+template <typename T>
+bool tree_t<T>::isEmpty() {
+	if (root_) {
+		return false;
+	}
+	return true;
+}
+
+template <typename T>
+void tree_t<T>::insert(T value) {
+	if (!root_) {
+		root_ = new node_t;
+		root_->value = value;
+		root_->left = nullptr;
+		root_->right = nullptr;
+	}
+	else {
+		node_t * curr_ = root_;
+		while (curr_) {
+			if (value >= curr_->value) {
+				if (curr_->right) {
+					curr_ = curr_->right;
+				}
+				else {
+					curr_->right = new node_t;
+					curr_ = curr_->right;
+					curr_->value = value;
+					curr_->left = nullptr;
+					curr_->right = nullptr;
+					break;
+				}
+			}
+			else if (value < curr_->value) {
+				if (curr_->left) {
+					curr_ = curr_->left;
+				}
+				else {
+					curr_->left = new node_t;
+					curr_ = curr_->left;
+					curr_->value = value;
+					curr_->left = nullptr;
+					curr_->right = nullptr;
+					break;
+				}
+			}
+		}
+	}
+}
+
+template <typename T>
+bool tree_t<T>::find(T value) const {
+	bool success = false;
+	search(value, root_, success);
+
+/*	if (success) {
+		std::cout << "true\n";
+	}
+	else {
+		std::cout << "false\n";
+	}*/
+	return success;
+}
+
+template <typename T>
+bool tree_t<T>::search(T value, const node_t * curr_, bool & success) const {
+	if (curr_) {
+		if (curr_->value != value) {
+			search(value, curr_->left, success);
+			search(value, curr_->right, success);
+		}
+		else if (curr_->value == value) {
+			success = true;
+		}
+	}
+	return success;
+}
+
+template <typename T>
+tree_t<T>::tree_t(std::initializer_list<T> keys) {
+	root_ = nullptr;
+	size_t size = keys.size();
+	for (size_t i = 0; i < size; i++) {
+		T value = *(keys.begin() + i);
+		insert(value);
+	}
+}
+
+template <typename T>
+auto tree_t<T>::operator==(tree_t const & other) const {
+	bool success = true;
+	compare(success, root_, other.root_);
+	return success;
+}
+
+template <typename T>
+bool tree_t<T>::compare(bool & success, node_t * left, node_t * right) const {
+	if (!left && !right) {
+
+	}
+	else if (left && right && left->value == right->value) {
+		compare(success, left->left, right->left);
+		compare(success, left->right, right->right);
+	}
+	else {
+		success = false;
+		return success;
+	}
+	return success;
+}
+
+template <typename T>
+bool tree_t<T>::remove(T value) {
+
+	node_t * curr_ = root_;
+	node_t * newroot_ = root_;
+	node_t * pred_ = root_;
+	remser(value, newroot_, curr_);
+	search(curr_, newroot_, pred_);
+	if (curr_->value != value) {
+		return false;
+	}
+	else if (curr_ == pred_) {
+		if (curr_->right) {
+			root_ = curr_->right;
+			node_t * prav = root_;
+			while (prav->left) {
+				prav = prav->left;
+			}
+			prav->left = curr_->left;
+		}
+		else if (curr_->left){
+			root_ = curr_->left;
+		}
+		else {
+			root_ = nullptr;
+		}
+		delete curr_;
+	}
+	else if (curr_ != pred_){
+		if (pred_->right == curr_) {
+			if (curr_->right) {
+				pred_->right = curr_->right;
+				node_t * prav = curr_->right;
+				while (prav->left) {
+					prav = prav->left;
+				}
+					prav->left = curr_->left;
+			}
+			else if (curr_->left) {
+				pred_->right = curr_->left;
+			}
+			else {
+				pred_->right = nullptr;
+			}
+		}
+		else if (pred_->left == curr_){
+			if (curr_->right) {
+				pred_->left = curr_->right;
+				node_t * prav = curr_->right;
+				while (prav->left) {
+					prav = prav->left;
+				}
+					prav->left = curr_->left;
+			}
+			else if (curr_->left) {
+				pred_->left = curr_->left;
+			}
+			else {
+				pred_->left = nullptr;
+			}
+		}
+		delete curr_;
+	}
+	return true;
+}
+
+template <typename T>
+void tree_t<T>::print(std::ostream & stream) const {
+	std::size_t count = 1;
+	inorder(stream, root_, count);
+}
+
+template <typename T>
+void tree_t<T>::inorder(std::ostream & stream, const node_t * curr_, std::size_t count) const {
+	if (curr_) {
+		if (curr_->right) {
+			count++;
+			inorder(stream, curr_->right, count);
+		}
+
+		if (!curr_->right) {
+			for (std::size_t i = 0; i < count; ++i) {
+				if (i == count - 1) {
+					stream << "----";
+				}
+				else {
+					stream << "    ";
+				}
+			}
+			stream << curr_->value << std::endl;
+		}
+		else {
+			count--;
+			for (std::size_t i = 0; i < count; ++i) {
+				if (i == count - 1) {
+					stream << "----";
+				}
+				else {
+					stream << "    ";
+				}
+			}
+			stream << curr_->value << std::endl;
+		}
+		if (curr_->left) {
+			count++;
+			inorder(stream, curr_->left, count);
+		}
+		else {
+			count--;
+		}
+
+	}
+}
+
+template <typename T>
+bool tree_t<T>::read(std::istream & stream, std::ostream & ostream) {
+	bool success = true;
+	char symb;
+	if (stream >> symb) {
+		if (symb == '+' || symb == '?' || symb == '-') {
+			T value;
+			if (stream >> value && symb == '+') {
+				insert(value);
+			}
+			else if (symb == '?') {
+				find(value);
+			}
+			else if (symb == '-') {
+				if (!remove(value)) {
+					ostream << "Key not found\n";
+				}
+			}
+		}
+		else if (symb == '=') {
+			print(ostream);
+		}
+		else if (symb == 'q') {
+			success = false;
+		}
+	}
+	return success;
+}
+///////////////////////////////////Python:
+class Node:
+    def __init__(self, value):
+        self.left = None
+        self.data = value
+        self.right = None
+
+class Tree:
+
+    def createNode(self, data):
+        return Node(data)
+
+    def insert(self, node , data):
+        #if tree is empty , return a root node
+        if node is None:
+            return self.createNode(data)
+        # if data is smaller than parent , insert it into left side
+        if data < node.data:
+            node.left = self.insert(node.left, data)
+        elif data > node.data:
+            node.right = self.insert(node.right, data)
+
+        return node
+
+
+    def search(self, node, data):
+        # if root is None or root is the search data.
+        if node is None or node.data == data:
+            return node
+
+        if node.data < data:
+            return self.search(node.right, data)
+        else:
+            return self.search(node.left, data)
+
+
+
+    def deleteNode(self,node,data):
+
+        # Check if tree is empty.
+        if node is None:
+            return None
+
+        # searching key into BST.
+        if data < node.data:
+            node.left = self.deleteNode(node.left, data)
+        elif data > node.data:
+            node.right = self.deleteNode(node.right, data)
+        else: # reach to the node that need to delete from BST.
+            if node.left is None and node.right is None:
+                del node
+            if node.left == None:
+                temp = node.right
+                del node
+                return  temp
+            elif node.right == None:
+                temp = node.left
+                del node
+                return temp
+
+        return node
+
+    def traverseInorder(self, root):
+        if root is not None:
+            self.traverseInorder(root.left)
+            print root.data
+            self.traverseInorder(root.right)
+
+    def traversePreorder(self, root):
+        if root is not None:
+            print root.data
+            self.traversePreorder(root.left)
+            self.traversePreorder(root.right)
+
+    def traversePostorder(self, root):
+        if root is not None:
+            self.traversePreorder(root.left)
+            self.traversePreorder(root.right)
+            print root.data
+///////////////////////////////////Java:
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
+
+/**
+  * @author ycoppel@google.com (Yohann Coppel)
+  * 
+  * @param <T>
+  *          Object type in the tree.
+*/
+public class Tree<T> {
+
+  private T head;
+
+  private ArrayList<Tree<T>> leafs = new ArrayList<Tree<T>>();
+
+  private Tree<T> parent = null;
+
+  private HashMap<T, Tree<T>> locate = new HashMap<T, Tree<T>>();
+
+  public Tree(T head) {
+    this.head = head;
+    locate.put(head, this);
+  }
+
+  public void addLeaf(T root, T leaf) {
+    if (locate.containsKey(root)) {
+      locate.get(root).addLeaf(leaf);
+    } else {
+      addLeaf(root).addLeaf(leaf);
+    }
+  }
+
+  public Tree<T> addLeaf(T leaf) {
+    Tree<T> t = new Tree<T>(leaf);
+    leafs.add(t);
+    t.parent = this;
+    t.locate = this.locate;
+    locate.put(leaf, t);
+    return t;
+  }
+
+  public Tree<T> setAsParent(T parentRoot) {
+    Tree<T> t = new Tree<T>(parentRoot);
+    t.leafs.add(this);
+    this.parent = t;
+    t.locate = this.locate;
+    t.locate.put(head, this);
+    t.locate.put(parentRoot, t);
+    return t;
+  }
+
+  public T getHead() {
+    return head;
+  }
+
+  public Tree<T> getTree(T element) {
+    return locate.get(element);
+  }
+
+  public Tree<T> getParent() {
+    return parent;
+  }
+
+  public Collection<T> getSuccessors(T root) {
+    Collection<T> successors = new ArrayList<T>();
+    Tree<T> tree = getTree(root);
+    if (null != tree) {
+      for (Tree<T> leaf : tree.leafs) {
+        successors.add(leaf.head);
+      }
+    }
+    return successors;
+  }
+
+  public Collection<Tree<T>> getSubTrees() {
+    return leafs;
+  }
+
+  public static <T> Collection<T> getSuccessors(T of, Collection<Tree<T>> in) {
+    for (Tree<T> tree : in) {
+      if (tree.locate.containsKey(of)) {
+        return tree.getSuccessors(of);
+      }
+    }
+    return new ArrayList<T>();
+  }
+
+  @Override
+  public String toString() {
+    return printTree(0);
+  }
+
+  private static final int indent = 2;
+
+  private String printTree(int increment) {
+    String s = "";
+    String inc = "";
+    for (int i = 0; i < increment; ++i) {
+      inc = inc + " ";
+    }
+    s = inc + head;
+    for (Tree<T> child : leafs) {
+      s += "\n" + child.printTree(increment + indent);
+    }
+    return s;
+  }
+}
