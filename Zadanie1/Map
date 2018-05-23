@@ -1,0 +1,830 @@
+///////////////////////////////////////////////////////////Отображение:
+///////////////////////////////////Python:
+from collections import ItemsView, KeysView, ValuesView, Sequence
+
+from .sortedlist import SortedList, recursive_repr
+
+class SortedDict(dict):
+  
+    def __init__(self, *args, **kwargs):
+        if args and (args[0] is None or callable(args[0])):
+            _key = self._key = args[0]
+            args = args[1:]
+        else:
+            _key = self._key = None
+
+        self._list = SortedList(key=_key)
+
+        # Calls to super() are expensive so cache references to dict methods on
+        # sorted dict instances.
+
+        _dict = super(SortedDict, self)
+        self._dict_clear = _dict.clear
+        self._dict_delitem = _dict.__delitem__
+        self._dict_iter = _dict.__iter__
+        self._dict_pop = _dict.pop
+        self._dict_setitem = _dict.__setitem__
+        self._dict_update = _dict.update
+
+        # Reaching through ``self._list`` repeatedly adds unnecessary overhead
+        # so cache references to sorted list methods.
+
+        _list = self._list
+        self._list_add = _list.add
+        self._list_clear = _list.clear
+        self._list_iter = _list.__iter__
+        self._list_reversed = _list.__reversed__
+        self._list_pop = _list.pop
+        self._list_remove = _list.remove
+        self._list_update = _list.update
+
+        # Expose some sorted list methods publicly.
+
+        self.bisect_left = _list.bisect_left
+        self.bisect = _list.bisect_right
+        self.bisect_right = _list.bisect_right
+        self.index = _list.index
+        self.irange = _list.irange
+        self.islice = _list.islice
+        self._reset = _list._reset
+
+        if _key is not None:
+            self.bisect_key_left = _list.bisect_key_left
+            self.bisect_key_right = _list.bisect_key_right
+            self.bisect_key = _list.bisect_key
+            self.irange_key = _list.irange_key
+
+        # GrantJ 2018-05-21 Temporary fix for improved backwards compatibility
+        # with V1.
+
+        self.iloc = SortedKeysView(self)
+
+        self._update(*args, **kwargs)
+
+
+    @property
+    def key(self):
+        return self._key
+
+
+    def clear(self):
+        self._dict_clear()
+        self._list_clear()
+
+
+    def __delitem__(self, key):
+        self._dict_delitem(key)
+        self._list_remove(key)
+
+
+    def __iter__(self):
+        return self._list_iter()
+
+
+    def __reversed__(self):
+        return self._list_reversed()
+
+
+    def __setitem__(self, key, value):
+        if key not in self:
+            self._list_add(key)
+        self._dict_setitem(key, value)
+
+    _setitem = __setitem__
+
+
+    def copy(self):
+        return self.__class__(self._key, self.items())
+
+    __copy__ = copy
+
+
+    @classmethod
+    def fromkeys(cls, iterable, value=None):
+        return cls((key, value) for key in iterable)
+
+
+    def keys(self):
+        return SortedKeysView(self)
+
+
+    def items(self):
+        return SortedItemsView(self)
+
+
+    def values(self):
+        return SortedValuesView(self)
+
+
+    class _NotGiven(object):
+        # pylint: disable=too-few-public-methods
+        def __repr__(self):
+            return '<not-given>'
+
+    __not_given = _NotGiven()
+
+    def pop(self, key, default=__not_given):
+        if key in self:
+            self._list_remove(key)
+            return self._dict_pop(key)
+        else:
+            if default is self.__not_given:
+                raise KeyError(key)
+            else:
+                return default
+
+
+    def popitem(self, index=-1):
+        if not self:
+            raise KeyError('popitem(): dictionary is empty')
+
+        key = self._list_pop(index)
+        value = self._dict_pop(key)
+        return (key, value)
+
+
+    def peekitem(self, index=-1):
+        key = self._list[index]
+        return key, self[key]
+
+
+    def setdefault(self, key, default=None):
+        
+        if key in self:
+            return self[key]
+        self._dict_setitem(key, default)
+        self._list_add(key)
+        return default
+
+
+    def update(self, *args, **kwargs):
+        if not self:
+            self._dict_update(*args, **kwargs)
+            self._list_update(self._dict_iter())
+            return
+
+        if not kwargs and len(args) == 1 and isinstance(args[0], dict):
+            pairs = args[0]
+        else:
+            pairs = dict(*args, **kwargs)
+
+        if (10 * len(pairs)) > len(self):
+            self._dict_update(pairs)
+            self._list_clear()
+            self._list_update(self._dict_iter())
+        else:
+            for key in pairs:
+                self._setitem(key, pairs[key])
+
+    _update = update
+
+
+    def __reduce__(self):
+        return (self.__class__, (self._key, list(self.items())))
+
+
+    @recursive_repr()
+    def __repr__(self):
+        _key = self._key
+        type_name = type(self).__name__
+        key_arg = '' if _key is None else '{0!r}, '.format(_key)
+        item_format = '{0!r}: {1!r}'.format
+        items = ', '.join(item_format(key, self[key]) for key in self._list)
+        return '{0}({1}{{{2}}})'.format(type_name, key_arg, items)
+
+
+    def _check(self):
+        _list = self._list
+        _list._check()
+        assert len(self) == len(_list)
+        assert all(key in self for key in _list)
+
+
+def _view_delitem(self, index):
+    _mapping = self._mapping
+    _list = _mapping._list
+    _dict_delitem = _mapping._dict_delitem
+    if isinstance(index, slice):
+        keys = _list[index]
+        del _list[index]
+        for key in keys:
+            _dict_delitem(key)
+    else:
+        key = _list.pop(index)
+        _dict_delitem(key)
+
+
+class SortedKeysView(KeysView, Sequence):
+    __slots__ = ()
+
+
+    def __getitem__(self, index):
+        
+        return self._mapping._list[index]
+
+
+    __delitem__ = _view_delitem
+
+
+class SortedItemsView(ItemsView, Sequence):
+    __slots__ = ()
+
+
+    def __getitem__(self, index):
+        _mapping = self._mapping
+        _mapping_list = _mapping._list
+
+        if isinstance(index, slice):
+            keys = _mapping_list[index]
+            return [(key, _mapping[key]) for key in keys]
+
+        key = _mapping_list[index]
+        return key, _mapping[key]
+
+
+    __delitem__ = _view_delitem
+
+
+class SortedValuesView(ValuesView, Sequence):
+    __slots__ = ()
+
+
+    def __getitem__(self, index):
+        _mapping = self._mapping
+        _mapping_list = _mapping._list
+
+        if isinstance(index, slice):
+            keys = _mapping_list[index]
+            return [_mapping[key] for key in keys]
+
+        key = _mapping_list[index]
+        return _mapping[key]
+
+
+    __delitem__ = _view_delitem
+///////////////////////////////////Java:
+package hashmap;
+
+import java.util.LinkedList;
+
+/**
+ * @author capezzbr
+ * @param <K> is the key type
+ * @param <V> is the value type
+ */
+public class HashMap<K, V> {
+   
+   class Item<K, V> {
+      private final K key;
+      private V value;
+      
+      public Item(K key, V value) {
+         this.key = key; this.value = value;
+      }
+      
+      public K getKey() {
+         return this.key;
+      }
+      
+      public V getValue() {
+         return this.value;
+      }
+      
+      public void setValue(V value) {
+         this.value = value;
+      }
+      
+      public boolean hasSameKey(K key) {
+         return this.key == null ? this.key == key : this.key.equals(key);
+      }
+   }
+   
+   private final static int DEFAULT_SIZE = 32;
+   private final int size;
+   private final LinkedList<Item<K, V>>[] elements;
+   
+   public HashMap() {
+      this(DEFAULT_SIZE);
+   }
+   
+   public HashMap(int size) {
+      this.size = size;
+      this.elements = (LinkedList<Item<K, V>>[])new LinkedList[size];
+   }
+   
+   private int simpleHash(K key) {
+      if ( key == null ) return 0;
+      else {
+         int hash = 7;
+         String strKey = key.toString();
+         for (int i=0; i < strKey.length(); i++) {
+            hash = hash * 31 + strKey.charAt(i);
+         }
+         return hash;
+      }
+   }
+   
+   public boolean hasElement(K key) {
+      int index = simpleHash(key) % size;
+      if ( elements[index] == null ) {
+         return false;
+      }
+      
+      for ( Item<K, V> i : elements[index] ) {
+         if ( i.hasSameKey(key) ) {
+            return true;
+         }
+      }
+      return false;
+   }
+   
+   public V get(K key) {
+      int index = simpleHash(key) % size;
+      if ( elements[index] == null ) {
+         return null;
+      }
+      
+      for ( Item<K, V> i : elements[index] ) {
+         if ( i.hasSameKey(key) ) {
+            return i.getValue();
+         }
+      }
+      return null;
+   }
+   
+   public void put(K key, V value) {
+      int index = simpleHash(key) % size;
+      if ( elements[index] == null ) {
+         elements[index] = new LinkedList<>();
+      }
+      
+      for ( Item<K, V> i : elements[index] ) {
+         if ( i.hasSameKey(key) ) {
+            elements[index].remove(i);
+            break;
+         }
+      }
+      
+      elements[index].add( new Item<>(key, value) );
+   }
+   
+   @Override
+   public String toString() {
+      StringBuilder sb = new StringBuilder();
+      int elementIndex;
+      for ( int k = 0; k < size; k++ ) {
+         if ( elements[k] != null ) {
+            elementIndex = 0;
+            sb.append("[").append(k).append("] -> {");
+            for ( Item<K, V> i : elements[k] ) {
+               sb.append(i.getKey()).append(" = ").append(i.getValue());
+               if ( elementIndex < elements[k].size() -1 ) {
+                  sb.append(", ");
+               }
+               elementIndex++;
+            }
+            sb.append("}\n");
+         }
+      }
+      return sb.toString();
+   }
+}
+
+///////////////////////////////////C++:
+#pragma once
+#ifndef _RBMAP_
+#define _RBMAP_
+#include "./rbtree.h"
+
+namespace rbmap_project {
+
+	/* Template types for tree */
+template <
+	class key_type,
+	class mapped_type,
+	class comparator,
+	class allocator,
+	bool multi>
+	class rbTraits
+		: public std::_Container_base0
+	{
+	public:	
+		typedef std::pair<const key_type, mapped_type> value_type;
+		typedef comparator key_compare;
+		typedef typename allocator::template rebind<value_type>::other allocator_type;
+		typedef key_type key_type;
+		
+		/* Map or multimap */
+		enum {multimap = multi};
+
+		/* Empty constructor */
+		rbTraits()
+			: comp()
+		{
+		}
+
+		/* Construct with comparator */
+		rbTraits(comparator compare)
+			: comp(compare)
+		{
+		}
+
+		/* Compare 2 values */
+		class value_compare
+			: public std::binary_function<value_type, value_type, bool>
+		{
+			friend class rbTraits<key_type, mapped_type, comparator, allocator, multi>;
+
+		public:
+			bool operator()(const value_type& left, const value_type& right) const
+			{
+				return (comp(left.first, right.first));
+			}
+
+			value_compare(key_compare compare)
+				: comp(compare)
+			{
+			}
+
+		protected:
+			/* Comparison functor */
+			key_compare comp;	
+		};
+
+		/* Get key of value */
+	template<class type1, class type2>
+		static const key_type& Key(const std::pair<type1, type2>& value)
+		{
+			return (value.first);
+		}
+
+		/* TODO Why not key_compare */
+		comparator comp;
+
+	};
+
+	/* Map */
+template<
+	class key_type,
+	class mapped_type,
+	class comparator = std::less<key_type>,
+	class allocator = std::allocator<std::pair<const key_type, mapped_type>>>
+	class rbmap
+		: public Tree<rbTraits<key_type, mapped_type, comparator, allocator, false>>
+	{	
+	public:
+		typedef rbmap<key_type, mapped_type, comparator, allocator> this_map;
+		typedef Tree<rbTraits<key_type, mapped_type, comparator, allocator, false>> base_tree;
+		typedef comparator key_compare;
+		typedef typename base_tree::value_compare value_compare;
+		typedef typename base_tree::allocator_type allocator_type;
+		typedef typename base_tree::size_type size_type;
+		typedef typename base_tree::difference_type difference_type;
+		typedef typename base_tree::pointer pointer;
+		typedef typename base_tree::const_pointer const_pointer;
+		typedef typename base_tree::reference reference;
+		typedef typename base_tree::const_reference const_reference;
+		typedef typename base_tree::iterator iterator;
+		typedef typename base_tree::const_iterator const_iterator;
+		typedef typename base_tree::reverse_iterator reverse_iterator;
+		typedef typename base_tree::const_reverse_iterator const_reverse_iterator;
+		typedef typename base_tree::value_type value_type;
+		typedef mapped_type mapped_type;
+
+		/* Empty constructor */
+		rbmap()
+			: base_tree(key_compare(), allocator_type())
+		{
+		}
+
+		/* Copying constructor */
+		rbmap(const this_map& right)
+			: base_tree(right)
+		{
+		}
+
+		/* Construct with comparator */
+		rbmap(const key_compare& compare)
+			: base_tree(compare, allocator_type())
+		{
+		}
+
+		/* Construct with comparator and allocator */
+		rbmap(const key_compare& compare, const allocator_type& allocator)
+			: base_tree(compare, allocator)
+		{
+		}
+
+		/* Construct with a set of iterators */
+	template<class iterator_class>
+		rbmap(iterator_class first, iterator_class last)
+				: base_tree(key_compare(), allocator_type())
+		{
+			this->insert(first, last);
+		}
+
+		template<class iterator_class>
+			rbmap(iterator_class first, iterator_class last, const key_compare& compare)
+				: base_tree(compare, allocator_type())
+		{
+			this->insert(first, last);
+		}
+
+		template<class iterator_class>
+			rbmap(iterator_class first, iterator_class last, const key_compare& compare, const allocator_type& allocator)
+				: base_tree(compare, allocator)
+		{
+			this->insert(first, last);
+		}
+
+		this_map& operator=(const this_map& right)
+		{
+			base_tree::operator=(right);
+			return (*this);
+		}
+
+		rbmap(this_map&& right)
+			: base_tree(move(right))
+		{
+		}
+
+		this_map& operator=(this_map&& right)
+		{
+			base_tree::operator=(move(right));
+			return (*this);
+		}
+
+		mapped_type& operator[](key_type&& key)
+		{
+			iterator place = this->lower_bound(key);
+			if (place == this->end() || comp(key, this->key(place.node())))
+				place = this->insert(place, std::pair<key_type, mapped_type>(key, mapped_type()));
+			return ((*place).second);
+		}
+
+		mapped_type& operator[](const key_type& key)
+		{
+			iterator place = this->lower_bound(key);
+			if (place == this->end() || comp(key, this->key(place.node())))
+				place = this->insert(place, value_type(key, mapped_type()));
+			return ((*place).second);
+		}
+
+		/*void erase(const_iterator place)
+		{
+			base_tree::erase(place);
+		}*/
+
+		
+		iterator erase(const_iterator place)
+		{
+			return base_tree::erase(place);
+		}
+
+		size_type erase(const key_type& key)
+		{
+			return (base_tree::erase(key));
+		}
+
+		iterator erase(const_iterator first, const_iterator second)
+		{
+			return base_tree::erase(first, second);
+		}
+
+		mapped_type& at(const key_type& key)
+		{
+			iterator place = this->lower_bound(key);
+			if (place == this->end() || this->comp(key, this->key(place.node()))) {
+				std::_Xout_of_range("No such key");
+				//throw;
+			}
+			return ((*place).second);
+		}
+
+		const mapped_type& at(const key_type& key) const
+		{
+			const_iterator place = this->lower_bound(key);
+			if (place == this->end() || this->comp(key, this->key(place.node()))) {
+				std::_Xout_of_range("No such key");
+			}
+			return ((*place).second);
+		}
+
+		void swap(this_map& right)
+		{
+			base_tree::swap(right);
+		}
+
+		void swap(this_map&& right)
+		{
+			base_tree::swap(move(right));
+		}
+	};
+
+	
+template<
+	class key_type,
+	class mapped_type,
+	class comparator,
+	class allocator>
+		inline void swap(rbmap<key_type, mapped_type, comparator, allocator>& left, rbmap<key_type, mapped_type, comparator, allocator>& right)
+	{
+		left.swap(right);
+	}
+
+template<
+	class key_type,
+	class mapped_type,
+	class comparator,
+	class allocator>
+		inline void swap(rbmap<key_type, mapped_type, comparator, allocator>& left, rbmap<key_type, mapped_type, comparator, allocator>&& right)
+	{
+		left.swap(forward<rbmap<key_type, mapped_type, comparator, allocator>>(right));
+	}
+
+template<
+	class key_type,
+	class mapped_type,
+	class comparator,
+	class allocator> 
+		inline void swap(rbmap<key_type, mapped_type, comparator, allocator>&& left, rbmap<key_type, mapped_type, comparator, allocator>& right)
+	{
+		right.swap(forward<rbmap<key_type, mapped_type, comparator, allocator>>(left));
+	}
+
+
+
+
+template<class key_type,
+	class mapped_type,
+	class comparator = std::less<key_type>,
+	class allocator = std::allocator<std::pair<const key_type, mapped_type>>>
+	class rbmultimap
+		: public Tree<rbTraits<key_type, mapped_type, comparator, allocator, true>>
+	{
+	public:
+		typedef rbmultimap<key_type, mapped_type, comparator, allocator> this_map;
+		typedef Tree<rbTraits<key_type, mapped_type, comparator, allocator, true>> base_tree;
+		typedef comparator key_compare;
+		typedef typename base_tree::value_compare value_compare;
+		typedef typename base_tree::allocator_type allocator_type;
+		typedef typename base_tree::size_type size_type;
+		typedef typename base_tree::difference_type difference_type;
+		typedef typename base_tree::pointer pointer;
+		typedef typename base_tree::const_pointer const_pointer;
+		typedef typename base_tree::reference reference;
+		typedef typename base_tree::const_reference const_reference;
+		typedef typename base_tree::iterator iterator;
+		typedef typename base_tree::const_iterator const_iterator;
+		typedef typename base_tree::reverse_iterator reverse_iterator;
+		typedef typename base_tree::const_reverse_iterator const_reverse_iterator;
+		typedef typename base_tree::value_type value_type;
+		typedef mapped_type mapped_type;
+
+		rbmultimap()
+			: base_tree(key_compare(), allocator_type())
+		{
+		}
+
+		rbmultimap(const this_map& right)
+			: base_tree(right)
+		{
+		}
+
+		rbmultimap(const key_compare& compare)
+			: base_tree(compare, allocator_type())
+		{
+		}
+
+		rbmultimap(const key_compare& compare, const allocator_type& allocator)
+			: base_tree(compare, allocator)
+		{
+		}
+
+		template<class iterator_class>
+			rbmultimap(iterator_class first, iterator_class last)
+				: base_tree(key_compare(), allocator_type())
+		{
+			this->insert(first, last);
+		}
+
+		template<class iterator_class>
+			rbmultimap(iterator_class first, iterator_class last, const key_compare& compare)
+				: base_tree(compare, allocator_type())
+		{
+			this->insert(first, last);
+		}
+
+		template<class iterator_class>
+			rbmultimap(iterator_class first, iterator_class last, const key_compare& compare, const allocator_type& allocator)
+				: base_tree(compare, allocator)
+		{
+			this->insert(first, last);
+		}
+
+		this_map& operator=(const this_map& right)
+		{
+			base_tree::operator=(right);
+			return (*this);
+		}
+
+		rbmultimap(this_map&& right)
+			: base_tree(move(right))
+		{
+		}
+
+		this_map& operator=(this_map&& right)
+		{
+			base_tree::operator=(move(right));
+			return (*this);
+		}
+
+		template<class val_type> iterator insert(val_type&& value)
+		{
+			return (base_tree::insert(std::forward<val_type>(value)).first);
+		}
+
+		template<class val_type> iterator insert(const_iterator place, val_type&& value)
+		{
+			return (base_tree::insert(place, std::forward<val_type>(value)));
+		}
+
+		iterator insert(const value_type& value)
+		{
+			return (base_tree::insert(value).first);
+		}
+
+		iterator insert(const_iterator place, const value_type& value)
+		{
+			return (base_tree::insert(place, value));
+		}
+
+		template<class iterator_class> void insert(iterator_class first, iterator_class second)
+		{
+			for (iterator_class it = first; it != second; it++)
+				insert(*it);
+		}
+
+		/*void erase(const_iterator place)
+		{
+			base_tree::erase(place);
+		}*/
+
+		iterator erase(const_iterator place)
+		{
+			return base_tree::erase(place);
+		}
+
+		size_type erase(const key_type& key)
+		{
+			return (base_tree::erase(key));
+		}
+
+		iterator erase(const_iterator first, const_iterator second)
+		{
+			return base_tree::erase(first, second);
+		}
+
+		void swap(this_map& right)
+		{
+			base_tree::swap(right);
+		}
+
+		void swap(this_map&& right)
+		{
+			base_tree::swap(move(right));
+		}
+	};
+
+template<
+	class key_type,
+	class mapped_type,
+	class comparator,
+	class allocator>
+		inline void swap(rbmultimap<key_type, mapped_type, comparator, allocator>& left, rbmultimap<key_type, mapped_type, comparator, allocator>& right)
+	{
+		left.swap(right);
+	}
+
+template<
+	class key_type,
+	class mapped_type,
+	class comparator,
+	class allocator>
+		inline void swap(rbmultimap<key_type, mapped_type, comparator, allocator>& left, rbmultimap<key_type, mapped_type, comparator, allocator>&& right)
+	{
+		left.swap(forward<rbmultimap<key_type, mapped_type, comparator, allocator>>(right));
+	}
+
+template<
+	class key_type,
+	class mapped_type,
+	class comparator,
+	class allocator> 
+		inline void swap(rbmultimap<key_type, mapped_type, comparator, allocator>&& left, rbmultimap<key_type, mapped_type, comparator, allocator>& right)
+	{
+		right.swap(forward<rbmultimap<key_type, mapped_type, comparator, allocator>>(left));
+	}
+
+}
+#endif
